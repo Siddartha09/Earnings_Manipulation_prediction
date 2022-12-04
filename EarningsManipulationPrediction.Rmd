@@ -1,0 +1,459 @@
+
+Case Study - "Predicting Earnings Manipulation By Indian Firms  Using Machine Learning Algorithms."
+
+**Summary of the case study:**   
+MCA Technology Solutions Private Limited was founded in Bangalore in 2015 with the goal of fusing business with technology and analytics. Customer intelligence, forecasting, optimization, risk assessment, web analytics, text mining, and cloud solutions are the areas where MCA Technology Solutions assisted its clients. MCA technology solutions' risk assessment sector focused on issues including credit scoring and fraud detection. A commercial bank asked Sachin Kumar, Director at MCA Technology Solutions to help them identify earnings manipulators among the bank's customers. The bank provided business loans to small and medium enterprises and the value of loan ranged from INR 10 million to 500 million. The bank had a suspicion that some of its clients were engaging in earnings manipulation to improve their chances of getting a loan. Saurabh Rishi, the chief data scientist at MCA Technologies was assigned the task of developing a use case for predicting earnings manipulations. He was aware of models for anticipating earnings manipulations, such as Benford's law and the Beneish model, but he was unsure of how well they performed, particularly in the context of India. Using the data downloaded from the Prowess database maintained by the Centre of Monitoring Indian Economy(CMIE), Saurabh made the decision to create his own model for predicting earnings manipulations. Daniel obtained data on income manipulators from the Lexis Nexis database and the Securities Exchange Board of India (SEBI). To create the model, data on more than 1200 companies was gathered. In comparison to other traditional models like the Beneish model, which is used to anticipate earnings manipulation, MCA Technology believed that machine learning algorithms may provide greater accuracy.
+
+
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(dplyr)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ROSE)
+library(ROCR)
+library(readxl)
+```
+
+**_Loading the data:_**
+
+```{r loaddata}
+complete_og <- read_excel("IMB579-XLS-ENG.xlsx", sheet = "Complete Data")
+sample_og <- read_excel("IMB579-XLS-ENG.xlsx", sheet = "Sample for Model Development")
+mani <- read_excel("IMB579-XLS-ENG.xlsx", sheet = "Manipulator")
+nonmani <- read_excel("IMB579-XLS-ENG.xlsx", sheet = "Non-Manipulator")
+
+target_s <- as.factor(sample_og$'C-MANIPULATOR')
+tab <- table(complete_og$Manipulater)
+tab
+```
+
+We see that there are 1200 non-manipulators and 39 manipulators in the complete dataset from the tab output above. The data is imbalanced as the number of non-manipulators outnumber the manipulators. This imbalance will be a problem for model creation as there might not be sufficient data to predict the manipulators.
+
+Let's check if there are any null values in the data.
+
+Number of null values in the complete_og dataset = `r sum(is.na(complete_og[,-1]))`
+
+As there are no null values, let's check for outliers.
+
+We can check for outliers in each variable using the boxplots.
+
+```{r outliers}
+boxplot(complete_og[,c(-1,1-ncol(complete_og),-ncol(complete_og))])
+```
+
+We see that most of the variables have outliers which might affect our model. We can handle outliers in many different ways. But, since we have limited number of manipulators, we can't remove the outliers from our dataset completely as we would run into the risk of not having enough data to build the model. Therefore, we normalize the outlier values by replacing them with the mean of the variable to clean the data.
+
+```{r datacleaning, message=FALSE}
+#Saving the original database in a new dataframe
+complete <- complete_og
+# moving manipulator to target variable
+target <- as.factor(complete$'C-MANIPULATOR')
+complete <- complete[,c(-1,1-ncol(complete),-ncol(complete))]
+str(complete)
+
+# First replacing the outliers with NA and then relacing NA with mean
+value = complete$DSRI[complete$DSRI %in% boxplot.stats(complete$DSRI)$out]
+complete$DSRI[complete$DSRI %in% value] <- NA
+complete$DSRI[is.na(complete$DSRI)] <- mean(complete$DSRI, na.rm = TRUE)
+
+value = complete$GMI[complete$GMI %in% boxplot.stats(complete$GMI)$out]
+complete$GMI[complete$GMI %in% value] <- NA
+complete$GMI[is.na(complete$GMI)] <- mean(complete$GMI, na.rm = TRUE)
+
+value = complete$AQI[complete$AQI %in% boxplot.stats(complete$AQI)$out]
+complete$AQI[complete$AQI %in% value] <- NA
+complete$AQI[is.na(complete$AQI)] <- mean(complete$AQI, na.rm = TRUE)
+
+value = complete$SGI[complete$SGI %in% boxplot.stats(complete$SGI)$out]
+complete$SGI[complete$SGI %in% value] <- NA
+complete$SGI[is.na(complete$SGI)] <- mean(complete$SGI, na.rm = TRUE)
+
+value = complete$DEPI[complete$DEPI %in% boxplot.stats(complete$DEPI)$out]
+complete$DEPI[complete$DEPI %in% value] <- NA
+complete$DEPI[is.na(complete$DEPI)] <- mean(complete$DEPI, na.rm = TRUE)
+
+value = complete$SGAI[complete$SGAI %in% boxplot.stats(complete$SGAI)$out]
+complete$SGAI[complete$SGAI %in% value] <- NA
+complete$SGAI[is.na(complete$SGAI)] <- mean(complete$SGAI, na.rm = TRUE)
+
+value = complete$ACCR[complete$ACCR %in% boxplot.stats(complete$ACCR)$out]
+complete$ACCR[complete$ACCR %in% value] <- NA
+complete$ACCR[is.na(complete$ACCR)] <- mean(complete$ACCR, na.rm = TRUE)
+
+value = complete$LEVI[complete$LEVI %in% boxplot.stats(complete$LEVI)$out]
+complete$LEVI[complete$LEVI %in% value] <- NA
+complete$LEVI[is.na(complete$LEVI)] <- mean(complete$LEVI, na.rm = TRUE)
+
+```
+
+```{r clean data}
+boxplot(complete)
+```
+
+After cleaning up the data, we can see from the updated boxplots that the spread of the variables has decreased considerably. Most of the data is centered at the means of the vairables.
+
+**1. Do you think the Beneish model developed in 1999 will still be relevant to Indian data?**  
+
+**A.** To answer this question, we have to know what Beneish model is  
+Beneish model - A mathematical model that uses financial ratios and eight variables to identify  
+whether a company has manipulated its earnings. It is used as a tool to uncover financial fraud.  
+
+The basic theory that Beneish bases the ratio upon is that companies may be more likely to  
+manipulate their profits if they show deteriorating gross margins, operating expenses, and  
+leverage both rising, along with significant sales growth. These factors may cause profit  
+manipulation through various means.
+
+Once the eight variables are calculated, they are then combined to achieve an M-Score for the  
+company. An M-Score of less than -1.78 suggests that the company will not be a manipulator. An  
+M-Score of greater than -1.78 signals that the company is likely to be a manipulator.
+
+M-score = −4.84 + 0.92 × DSRI + 0.528 × GMI + 0.404 × AQI + 0.892 × SGI + 0.115 × DEPI −0.172 × SGAI + 4.679 × ACCR − 0.327 × LEVI.
+
+Let's calculate M-score for the complete data.
+
+```{r 1Q, message=FALSE, warning=FALSE}
+beneish <- complete_og
+beneish$mscore <- (-4.84+(beneish$DSRI*0.92)+(0.528*beneish$GMI)+(0.404**beneish$AQI)+(0.892*beneish$SGI)+(0.115*beneish$DEPI)-(0.172*beneish$SGAI)+(4.679*beneish$ACCR)-(0.327*beneish$LEVI))
+
+beneish$pred[beneish$mscore > -1.78] <- 1
+beneish$pred[beneish$mscore <= -1.78] <- 0
+
+```
+Evaluating the performance of beneish using confusion matrix.
+```{r}
+t <- table(beneish$pred, beneish$'C-MANIPULATOR', dnn = c("Predicted", "Actual"))
+confusionMatrix(t, positive = "1")
+
+```
+
+The accuracy of the model is 80.7% and the recall(Sensitivity) is 72%.
+
+Although the accuracy of the Beneish model is high, the recall value is only 72%. Since, the  
+class of interest is a minority class with only 39 observations we should measure the  
+performance of the model using recall or sensitivity which is nothing but the percentage of  
+positive cases caught. So, the beneish model predicts whether a company is manipulating it's  
+financial performance 72% of the time which is not very useful in the Indian context.
+
+**2. The number of manipulators is usually much less than non-manipulators (in the accompanying spreadsheet, the percentage of manipulators is less than 4% in the complete data). What kind of modeling problems can one expect when cases in one class are much lower than the other class in a binary classification problem? How can one handle these problems?**  
+
+**A.** There is class imbalance in the data which causes the statistical algorithms to perform badly due to bias. In addition, the traditional model evaluations won't be able to accurately measure the performance of the model.
+
+It is typically referred to as a rare event if the event that needs to be predicted is in the minority class and the event rate is less than 5%. As a result, the minority class is more likely to be incorrectly classified than the dominant class. As a result, the model's prediction accuracy is weakened.
+
+Most of the algorithms tend to predict the majority class and ignore the minority class as insignificant or as outliers.
+
+We can handle these problems using the below methods:  
+For resolving class-imbalance in data, we can use  
+1. Random Under Sampling - Balancing the data by randomly eliminating majority class examples.  
+2. Random Over Sampling - Increasing the number of instances in minority class  by replicating them randomly.  
+3. Synthetic Minority Over Sampling Technique (SMOTE) - Creating new synthetic instances in the minority class based on the existing minority class instances.  
+  
+  
+For evaluating the performance of the models, we can use various other metrics like recall, precision, F-score etc depending on the problem that we are trying to solve.  
+
+**3. Use a sample data (220 cases including 39 manipulators) and develop a logistic regression model that can be used by MCA Technologies Private Limited for predicting probability of earnings manipulation.**
+
+**A.** First, we have to clean the sample data by repeating the process we did on complete data.
+
+```{r sample setup, echo=FALSE, message=FALSE, warning=FALSE}
+sample <- sample_og
+sample <- sample[,c(-1,1-ncol(sample),-ncol(sample))]
+
+value = sample$DSRI[sample$DSRI %in% boxplot.stats(sample$DSRI)$out]
+sample$DSRI[sample$DSRI %in% value] <- NA
+sample$DSRI[is.na(sample$DSRI)] <- mean(sample$DSRI, na.rm = TRUE)
+
+value = sample$GMI[sample$GMI %in% boxplot.stats(sample$GMI)$out]
+sample$GMI[sample$GMI %in% value] <- NA
+sample$GMI[is.na(sample$GMI)] <- mean(sample$GMI, na.rm = TRUE)
+
+value = sample$AQI[sample$AQI %in% boxplot.stats(sample$AQI)$out]
+sample$AQI[sample$AQI %in% value] <- NA
+sample$AQI[is.na(sample$AQI)] <- mean(sample$AQI, na.rm = TRUE)
+
+value = sample$SGI[sample$SGI %in% boxplot.stats(sample$SGI)$out]
+sample$SGI[sample$SGI %in% value] <- NA
+sample$SGI[is.na(sample$SGI)] <- mean(sample$SGI, na.rm = TRUE)
+
+value = sample$DEPI[sample$DEPI %in% boxplot.stats(sample$DEPI)$out]
+sample$DEPI[sample$DEPI %in% value] <- NA
+sample$DEPI[is.na(sample$DEPI)] <- mean(sample$DEPI, na.rm = TRUE)
+
+value = sample$SGAI[sample$SGAI %in% boxplot.stats(sample$SGAI)$out]
+sample$SGAI[sample$SGAI %in% value] <- NA
+sample$SGAI[is.na(sample$SGAI)] <- mean(sample$SGAI, na.rm = TRUE)
+
+value = sample$ACCR[sample$ACCR %in% boxplot.stats(sample$ACCR)$out]
+sample$ACCR[sample$ACCR %in% value] <- NA
+sample$ACCR[is.na(sample$ACCR)] <- mean(sample$ACCR, na.rm = TRUE)
+
+value = sample$LEVI[sample$LEVI %in% boxplot.stats(sample$LEVI)$out]
+sample$LEVI[sample$LEVI %in% value] <- NA
+sample$LEVI[is.na(sample$LEVI)] <- mean(sample$LEVI, na.rm = TRUE)
+
+```
+
+First, let's split the data into train and test data. Then, To handle the class-imbalance, we will do both over and under sampling to the sample train data.
+
+```{r oversampling, message=FALSE}
+c_sample <- cbind(sample, target_s)
+str(c_sample)
+
+set.seed(999)
+index <- sample(2, nrow(c_sample), replace = TRUE, prob = c(0.75,0.25))
+s_train <- c_sample[index ==1,]
+s_test <- c_sample[index==2,]
+
+os_sample <- ovun.sample(target_s ~., data = s_train, method = "both")$data
+summary(os_sample$target_s)
+
+```
+
+Running forward selection for variable selection as this method gives better results consuming less amount of time.
+
+```{r variable selection, message=FALSE}
+
+# Variable selection
+full <- glm(target_s ~., data = os_sample, family = binomial)
+null <- glm(target_s ~1, data = os_sample, family = binomial)
+
+# Forward Selection
+sample_forward <- step(null, scope = list(lower = null, upper = full), direction = "forward")
+
+```
+We will use the call suggested by the forward selection to create the logistic regression model.
+
+```{r model on sample data}
+logit_sample <- glm(formula(sample_forward),  data = os_sample, family = binomial)
+summary(logit_sample)
+
+```
+
+logit_sample is the logistic regression model developed on the sample data that can be used by MCA Technologies to predict probability of earnings manipulation.
+
+**4. What measure do you use to evaluate the performance of your logistic regression model? How does your model perform on the training and test datasets?**
+
+**A.** We can calculate the pvalue from the Chi-Square test for our model to see if the p-value is less than the alpha value(statistical threshold). If p-value is less than the alpha value, our model is performing well.
+
+```{r pvalue}
+rd_sample <- summary(logit_sample)$deviance
+pvalue <- 1-pchisq(rd_sample, 3)
+pvalue
+```
+
+From above, p-value for the model 'logit_sample' is 0 which is very small therefore we can conclude that the model is performing well.
+
+Testing the model on Train and test data:
+```{r performance}
+pred_s_train <- predict(logit_sample, newdata = os_sample, type = "response")
+pred_s_test <- predict(logit_sample, newdata = s_test, type = "response")
+
+s_train_op <- as.factor(ifelse(pred_s_train>0.36,1,0))
+t_train <- table(os_sample$target_s,s_train_op)
+sensitivity(t_train)
+confusionMatrix(t_train)
+
+s_test_op <- as.factor(ifelse(pred_s_test>0.2,1,0))
+t_test <- table(s_test$target_s,s_test_op)
+sensitivity(t_test)
+confusionMatrix(t_test)
+
+```
+The sensitivity of logit_sample model on training data is `r sensitivity(t_train)`
+and the sensitivity on test data is `r sensitivity(t_test)` which is much better than the beneish model as we saw in question 1.
+
+**5. What is the best probability threshold that can be used to assign instances to different classes? Write two functions that receive the output of the ROC performance function and return the best probability thresholds using the distance to (0,1) and Youden’s approach respectively.**
+
+**A. ** To obtain the best probability threshold we should use the ROC curve.
+```{r}
+ROCR_spred <- prediction(pred_s_test, s_test$target_s)
+ROCR_sperf <- performance(ROCR_spred, "tpr", "fpr")
+plot(ROCR_sperf)
+
+auc_sample <- performance(ROCR_spred, "auc")
+unlist(slot(auc_sample, "y.values"))
+
+# Youden's index
+opt_youden = function(ROCR_sperf,ROCR_spred){
+  cut_ind = mapply(FUN=function(x,y,p){
+    l=y-x
+    ind1 = which (l == max(l))
+    c(sensitivity = y[[ind1]], specificity = 1-x[[ind1]], cutoff = p[[ind1]])
+  }, ROCR_sperf@x.values, ROCR_sperf@y.values, ROCR_spred@cutoffs)
+  return(cut_ind)
+}
+
+prob_youden <- opt_youden(ROCR_sperf,ROCR_spred)[3,1]
+prob_youden <- as.numeric(prob_youden)
+prob_youden
+
+
+# Distance to (0,1)
+opt.cut1 = function(ROCR_sperf, ROCR_spred){
+  cut.ind = mapply(FUN=function(x, y, p){
+    d = ((x - 0)^2 + (y-1)^2)^(1/2)
+    ind = which(d == min(d)) 
+    c(sensitivity = y[[ind]], specificity = 1-x[[ind]], cutoff = p[[ind]])
+  }, ROCR_sperf@x.values, ROCR_sperf@y.values, ROCR_spred@cutoffs)
+  return(cut.ind)
+}
+
+prob_01 <- opt.cut1(ROCR_sperf,ROCR_spred)[3,1]
+prob_01 <- as.numeric(prob_01)
+prob_01
+
+```
+
+**6. Based on the models developed in questions 4 and 5, suggest a M-score (Manipulator score) that can be used by regulators to identify potential manipulators.**  
+
+**A. ** To identify the best M-score, we have to look at the performance after applying the youden's threshold and distance threshold.
+
+```{r choose mscore}
+s_test_op <- as.factor(ifelse(pred_s_test>prob_01,1,0))
+t_test <- table(s_test$target_s,s_test_op)
+recall_01 <- sensitivity(t_test)
+
+s_test_op <- as.factor(ifelse(pred_s_test>prob_youden,1,0))
+t_test <- table(s_test$target_s,s_test_op)
+recall_youden <- sensitivity(t_test)
+
+ifelse(recall_youden>=recall_01,"Youden's approach is providing better recall on the test data, therefore this can be used as the M-score","Distance to (0,1) is providing better recall on the test data, therefore this can be used as the M-score")
+
+
+```
+
+
+The best M-score is `r ifelse(recall_youden >= recall_01, prob_youden, prob_01)` which can be used by the regulators to identify potential manipulators.
+
+
+**7. Develop a decision tree model. What insights do you obtain from the tree model?**
+
+**A. ** Decision tree model for the sample data
+
+```{r tree}
+# Constructing full tree
+man_tree <- rpart(target_s ~., data = s_train,
+                  parms = list(split = "information"),
+                  control = rpart.control(minbucket = 0, minsplit = 0, cp = -1))
+
+rpart.plot(man_tree)
+
+```
+```{r pruning}
+mincp_i <- which.min(man_tree$cptable[,"xerror"])
+optCP <- man_tree$cptable[mincp_i,"CP"]
+mantree_pruned <- prune(man_tree, cp = optCP)
+
+rpart.plot(mantree_pruned)
+
+tree_pred_train <- predict(mantree_pruned, newdata = s_train, type = "class")
+tree_pred_test <- predict(mantree_pruned, newdata = s_test, type = "class")
+
+sensitivity(tree_pred_train,os_sample$target_s)
+sensitivity(tree_pred_test,s_test$target_s)
+confusionMatrix(tree_pred_train, os_sample$target_s)
+confusionMatrix(tree_pred_test, s_test$target_s)
+
+```
+
+
+As we can see, the recall values are very high compared to the logistic regression model even though the sampling is not done on the training data. Decision tree model is giving a better prediction algorithm compared to logistic regression at least on the sample data.
+
+Let's check for complete database:
+
+```{r}
+# Splitting Complete data into train and test subsets
+
+n_complete <- cbind(complete, target)
+str(n_complete)
+
+#Splitting into train and test data
+set.seed(999)
+index <- sample(2, nrow(n_complete), replace = TRUE, prob = c(0.75,0.25))
+c_train <- n_complete[index ==1,]
+c_test <- n_complete[index==2,]
+
+# Decision tree on complete data
+cman_tree <- rpart(target ~., data = c_train,
+                  parms = list(split = "information"),
+                  control = rpart.control(minbucket = 0, minsplit = 0, cp = -1))
+
+mincp_i <- which.min(cman_tree$cptable[,"xerror"])
+optCP <- cman_tree$cptable[mincp_i,"CP"]
+cmantree_pruned <- prune(cman_tree, cp = optCP)
+
+rpart.plot(cmantree_pruned)
+
+ctree_pred_train <- predict(cmantree_pruned, newdata = c_train, type = "class")
+ctree_pred_test <- predict(cmantree_pruned, newdata = c_test, type = "class")
+
+sensitivity(ctree_pred_train,c_train$target)
+tc_recall <- sensitivity(ctree_pred_test,c_test$target)
+tc_recall
+
+```
+
+From above, we again see that the recall values accuracy of the decision tree model are extremely superior compared to the logistic regression model. But the output of the decision tree might be unstable and since the data seems to be linearly related to the target logistic should be a stable acceptable solution for this problem.
+
+
+**8. Develop a logistic regression model using the complete data set (1200 non-manipulators and 39 manipulators), compare the results with the previous logistic regression model and comment on differences.**
+
+**A. ** Developing logistic regression model for the complete dataset.
+
+```{r complete data logit model}
+#applying over and under sampling on the complete data to resolve class-imbalance
+os_complete <- ovun.sample(target ~., data = c_train, method = "both")$data
+summary(os_complete$target)
+
+# Variable selection using forward selection
+full <- glm(target ~., data = os_complete, family = binomial)
+null <- glm(target ~1, data = os_complete, family = binomial)
+
+complete_forward <- step(null, scope = list(lower = null, upper = full), direction = "forward")
+
+# logistic model
+logit_complete <- glm(formula(complete_forward), data = os_complete, family = binomial)
+
+rd_complete <- summary(logit_complete)$deviance
+rd_complete
+pvalue_c <- 1-pchisq(rd_complete, 3)
+pvalue_c
+
+# predicting on train and test data
+pred_c_train <- predict(logit_complete, newdata = os_complete, type = "response")
+pred_c_test <- predict(logit_complete, newdata = c_test, type = "response")
+
+#ROC curve
+ROCR_cpred <- prediction(pred_c_train, os_complete$target)
+ROCR_cperf <- performance(ROCR_cpred, "tpr", "fpr")
+plot(ROCR_cperf)
+
+auc_complete <- performance(ROCR_cpred, "auc")
+unlist(slot(auc_complete, "y.values"))
+
+prob_01_c <- opt.cut1(ROCR_cperf,ROCR_cpred)[3,1]
+prob_01_c <- as.numeric(prob_01_c)
+
+prob_youden_c <- opt_youden(ROCR_cperf,ROCR_cpred)[3,1]
+prob_youden_c <- as.numeric(prob_youden_c)
+
+c_test_op <- as.factor(ifelse(pred_c_test>prob_01_c,1,0))
+t_test_c <- table(c_test$target,c_test_op)
+recall_c01 <- sensitivity(t_test_c)
+
+c_test_op <- as.factor(ifelse(pred_c_test>prob_youden_c,1,0))
+t_test_c <- table(c_test$target,c_test_op)
+recall_cyouden <- sensitivity(t_test_c)
+
+ifelse(recall_cyouden >= recall_c01, "Youden's approach is giving better performance threshold on the complete dataset", "Distance to (0,1) approach is giving better performance threshold on the complete dataset")
+```
+`r ifelse(max(c(recall_cyouden,recall_c01))>max(c(recall_youden,recall_01)), "the performance of the model has improved after training on the complete dataset","the performance deteriorated after creating the model on complete data")`
+
+The M-score after constructing model using complete dataset is `r ifelse(recall_cyouden >= recall_c01, prob_youden_c, prob_01_c)`
+
+Comparing the logistic model built using complete data with the decision tree built with complete data,
+`r ifelse(max(c(recall_cyouden,recall_c01))>tc_recall,"Logistic model built on complete data is better at predicting manipulators than the decision tree","Logistic model built on complete data is worse at predicting manipulators than the decision tree")`
+
