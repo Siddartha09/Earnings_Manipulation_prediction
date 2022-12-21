@@ -9,3 +9,5 @@ MCA Technology Solutions Private Limited was founded in Bangalore in 2015 with t
 
 *Dataset Analysis*
 We see that there are 1200 non-manipulators and 39 manipulators in the complete dataset from the tab output above. The data is imbalanced as the number of non-manipulators outnumber the manipulators. This imbalance will be a problem for model creation as there might not be sufficient data to predict the manipulators.
+
+The entire code is written in R markdown. The code can be pasted into a rmd file and can be knitted.
