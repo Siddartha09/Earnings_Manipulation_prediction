@@ -1,9 +1,4 @@
 
-Case Study - "Predicting Earnings Manipulation By Indian Firms  Using Machine Learning Algorithms."
-
-
-
-
 ```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(dplyr)
@@ -28,19 +23,14 @@ tab <- table(complete_og$Manipulater)
 tab
 ```
 
-We see that there are 1200 non-manipulators and 39 manipulators in the complete dataset from the tab output above. The data is imbalanced as the number of non-manipulators outnumber the manipulators. This imbalance will be a problem for model creation as there might not be sufficient data to predict the manipulators.
-
 Let's check if there are any null values in the data.
 
 Number of null values in the complete_og dataset = `r sum(is.na(complete_og[,-1]))`
 
 As there are no null values, let's check for outliers.
 
-We can check for outliers in each variable using the boxplots.
+We can check for outliers in each variable using the boxplots. `r boxplot(complete_og[,c(-1,1-ncol(complete_og),-ncol(complete_og))])`
 
-```{r outliers}
-boxplot(complete_og[,c(-1,1-ncol(complete_og),-ncol(complete_og))])
-```
 
 We see that most of the variables have outliers which might affect our model. We can handle outliers in many different ways. But, since we have limited number of manipulators, we can't remove the outliers from our dataset completely as we would run into the risk of not having enough data to build the model. Therefore, we normalize the outlier values by replacing them with the mean of the variable to clean the data.
 
